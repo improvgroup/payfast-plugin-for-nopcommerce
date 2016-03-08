@@ -1,0 +1,61 @@
+﻿@{
+    Layout = "";
+}
+@model ConfigurationModel
+@using Nop.Plugin.Payments.PayFast.Models;
+@using Nop.Web.Framework;
+@using (Html.BeginForm())
+{
+    @Html.AntiForgeryToken()
+    <table class="adminContent">
+    <tr>
+        <td colspan="2">
+            <b>PayFast Standard Configuration</b>
+        </td>
+    </tr>
+     <tr>
+        <td class="adminTitle">
+                @Html.NopLabelFor(model => model.Url):
+            </td>
+            <td class="adminData">
+                @Html.EditorFor(model => model.Url)
+                @Html.ValidationMessageFor(model => model.Url)
+            </td>
+        </tr>
+           <tr>
+            <td class="adminTitle">
+                @Html.NopLabelFor(model => model.ValidateUrl):
+            </td>
+            <td class="adminData">
+                @Html.EditorFor(model => model.ValidateUrl)
+                @Html.ValidationMessageFor(model => model.ValidateUrl)
+            </td>
+        </tr>
+        <tr>
+            <td class="adminTitle">
+                @Html.NopLabelFor(model => model.merchant_id):
+            </td>
+            <td class="adminData">
+                @Html.EditorFor(model => model.merchant_id)
+                @Html.ValidationMessageFor(model => model.merchant_id)
+            </td>
+        </tr>
+        <tr>
+            <td class="adminTitle">
+                @Html.NopLabelFor(model => model.merchant_key):
+            </td>
+            <td class="adminData">
+                @Html.EditorFor(model => model.merchant_key)
+                @Html.ValidationMessageFor(model => model.merchant_key)
+            </td>
+        </tr>
+        <tr>
+            <td colspan="2">
+                <button type="submit" name="save" value="save" class="k-button">
+                    Save</button>
+            </td>
+        </tr>
+
+    </table>
+    
+}
