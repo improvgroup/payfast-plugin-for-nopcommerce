@@ -14,12 +14,10 @@ namespace Nop.Plugin.Payments.PayFast
                  new[] { "Nop.Plugin.Payments.PayFast.Controllers" }
             );
         }
+
         public int Priority
         {
-            get
-            {
-                return 0;
-            }
+            get { return 0; }
         }
     }
 }

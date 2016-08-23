@@ -1,53 +1,167 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
+using System.Net;
+using System.IO;
 using System.Text;
+using System.Web;
 using System.Web.Mvc;
-using Nop.Core;
 using Nop.Core.Domain.Orders;
-using Nop.Core.Domain.Payments;
 using Nop.Plugin.Payments.PayFast.Models;
 using Nop.Services.Configuration;
 using Nop.Services.Localization;
 using Nop.Services.Logging;
 using Nop.Services.Orders;
 using Nop.Services.Payments;
-using Nop.Web.Framework;
 using Nop.Web.Framework.Controllers;
-using System.Collections.Specialized;
 
 namespace Nop.Plugin.Payments.PayFast.Controllers
 {
 	public class PaymentPayFastController : BasePaymentController
 	{
-		private readonly ISettingService _settingService;
-		private readonly PayFastPaymentSettings _PayFastPaymentSettings;
-		private readonly IOrderService _orderService;
-		private readonly IOrderProcessingService _orderProcessingService;
-		private readonly ILogger _logger;
+        #region Fields
 
-	    public PaymentPayFastController(ISettingService settingService, PayFastPaymentSettings PayFastPaymentSettings,
-	                                    IOrderService orderService,
-	                                    IOrderProcessingService orderProcessingService,
-	                                    ILogger logger)
+        private readonly ILocalizationService _localizationService;
+        private readonly ILogger _logger;
+        private readonly IOrderProcessingService _orderProcessingService;
+        private readonly IOrderService _orderService;
+        private readonly ISettingService _settingService;		
+        private readonly PayFastPaymentSettings _payFastPaymentSettings;
+
+        #endregion
+
+        #region Ctor
+
+        public PaymentPayFastController(ILocalizationService localizationService,
+            ILogger logger,
+            IOrderProcessingService orderProcessingService,
+            IOrderService orderService,
+            ISettingService settingService,
+            PayFastPaymentSettings payFastPaymentSettings)
 	    {
-	        this._settingService = settingService;
-	        this._PayFastPaymentSettings = PayFastPaymentSettings;
-	        this._orderService = orderService;
-	        this._orderProcessingService = orderProcessingService;
-	        this._logger = logger;
-	    }
+            this._localizationService = localizationService;
+            this._logger = logger;
+            this._orderProcessingService = orderProcessingService;
+            this._orderService = orderService;
+            this._settingService = settingService;
+            this._payFastPaymentSettings = payFastPaymentSettings;
+        }
 
-	    [AdminAuthorize]
+        #endregion
+
+        #region Utilities
+
+        /// <summary>
+        /// Validate Instant Transaction Notification Callback
+        /// </summary>
+        /// <param name="form">List of parameters</param>
+        /// <param name="order">Order</param>
+        /// <returns>true if there are no errors; otherwise false</returns>
+        protected bool ValidateITN(FormCollection form, out Order order)
+        {
+            order = null;
+
+            //validate order
+            Guid orderGuid;
+            if (!Guid.TryParse(form["m_payment_id"], out orderGuid))
+                return false;
+
+            order = _orderService.GetOrderByGuid(orderGuid);
+            if (order == null)
+            {
+                _logger.Error(string.Format("PayFast ITN error: Order with guid {0} is not found", orderGuid));
+                return false;
+            }
+
+            //validate merchant ID
+            if (!form["merchant_id"].Equals(_payFastPaymentSettings.MerchantId, StringComparison.InvariantCulture))
+            {
+                _logger.Error("PayFast ITN error: Merchant ID mismatch");
+                return false;
+            }
+
+            //validate IP address
+            IPAddress ipAddress;
+            if (!IPAddress.TryParse(Request.ServerVariables["REMOTE_ADDR"], out ipAddress))
+            {
+                _logger.Error("PayFast ITN error: IP address is empty");
+                return false;
+            }
+
+            var validIPs = new[]
+            {
+                "www.payfast.co.za",
+                "sandbox.payfast.co.za",
+                "w1w.payfast.co.za",
+                "w2w.payfast.co.za"
+            }.SelectMany(dns => Dns.GetHostAddresses(dns));
+            if (!validIPs.Contains(ipAddress))
+            {
+                _logger.Error(string.Format("PayFast ITN error: IP address {0} is not valid", ipAddress));
+                return false;
+            }
+
+            //validate data
+            form.Remove("signature");
+            var parameters = HttpUtility.ParseQueryString(string.Empty);
+            parameters.Add(form);
+            var postData = Encoding.Default.GetBytes(parameters.ToString());
+            var request = (HttpWebRequest)WebRequest.Create(string.Format("{0}/eng/query/validate",
+                _payFastPaymentSettings.UseSandbox ? "https://sandbox.payfast.co.za" : "https://www.payfast.co.za"));
+            request.Method = "POST";
+            request.ContentType = "application/x-www-form-urlencoded";
+            request.ContentLength = postData.Length;
+
+            try
+            {
+                using (var stream = request.GetRequestStream())
+                {
+                    stream.Write(postData, 0, postData.Length);
+                }
+                var httpResponse = (HttpWebResponse)request.GetResponse();
+                using (var streamReader = new StreamReader(httpResponse.GetResponseStream()))
+                {
+                    var responseParams = HttpUtility.ParseQueryString(streamReader.ReadToEnd());
+                    if (!responseParams.ToString().StartsWith("VALID", StringComparison.InvariantCulture))
+                    {
+                        _logger.Error("PayFast ITN error: passed data is not valid");
+                        return false;
+                    }
+                }
+            }
+            catch (WebException)
+            {
+                _logger.Error("PayFast ITN error: passed data is not valid");
+                return false;
+            }
+
+            //validate payment status
+            if (!form["payment_status"].Equals("COMPLETE", StringComparison.InvariantCulture))
+            {
+                _logger.Error(string.Format("PayFast ITN error: order #{0} is {1}", order.Id, form["payment_status"]));
+                return false;
+            }
+
+            return true;
+        }
+
+        #endregion
+
+        #region Methods
+
+        [AdminAuthorize]
 		[ChildActionOnly]
 		public ActionResult Configure()
 		{
-			var model = new ConfigurationModel();
-			model.Url = _PayFastPaymentSettings.Url;
-			model.merchant_id = _PayFastPaymentSettings.merchant_id;
-			model.ValidateUrl = _PayFastPaymentSettings.ValidateUrl;
-            model.merchant_key = _PayFastPaymentSettings.merchant_key;
+            var model = new ConfigurationModel
+            {
+                MerchantId = _payFastPaymentSettings.MerchantId,
+                MerchantKey = _payFastPaymentSettings.MerchantKey,
+                UseSandbox = _payFastPaymentSettings.UseSandbox,
+                AdditionalFee = _payFastPaymentSettings.AdditionalFee,
+                AdditionalFeePercentage = _payFastPaymentSettings.AdditionalFeePercentage
+            };
+
             return View("~/Plugins/Payments.PayFast/Views/PaymentPayFast/Configure.cshtml", model);
 		}
 
@@ -56,86 +170,59 @@ namespace Nop.Plugin.Payments.PayFast.Controllers
 		[ChildActionOnly]
 		public ActionResult Configure(ConfigurationModel model)
 		{
-			//if (!ModelState.IsValid)
-			//    return Configure();
-			_PayFastPaymentSettings.Url = model.Url;
-			_PayFastPaymentSettings.ValidateUrl = model.ValidateUrl;
-			_PayFastPaymentSettings.merchant_id = model.merchant_id;
-			_PayFastPaymentSettings.merchant_key = model.merchant_key;
-			_settingService.SaveSetting(_PayFastPaymentSettings);
+            if (!ModelState.IsValid)
+                return Configure();
 
-		    return Configure();
+            _payFastPaymentSettings.MerchantId = model.MerchantId;
+			_payFastPaymentSettings.MerchantKey = model.MerchantKey;
+			_payFastPaymentSettings.UseSandbox = model.UseSandbox;
+			_payFastPaymentSettings.AdditionalFee = model.AdditionalFee;
+            _payFastPaymentSettings.AdditionalFeePercentage = model.AdditionalFeePercentage;
+
+            _settingService.SaveSetting(_payFastPaymentSettings);
+
+            SuccessNotification(_localizationService.GetResource("Admin.Plugins.Saved"));
+
+            return Configure();
 		}
 
 		[ChildActionOnly]
 		public ActionResult PaymentInfo()
 		{
-            var model = new PaymentInfoModel();
-            return View("~/Plugins/Payments.PayFast/Views/PaymentPayFast/PaymentInfo.cshtml", model);
+            return View("~/Plugins/Payments.PayFast/Views/PaymentPayFast/PaymentInfo.cshtml");
 		}
 
 		[NonAction]
 		public override IList<string> ValidatePaymentForm(FormCollection form)
 		{
-			var warnings = new List<string>();
-			return warnings;
+			return new List<string>();
 		}
 
 		[NonAction]
 		public override ProcessPaymentRequest GetPaymentInfo(FormCollection form)
 		{
-			var paymentInfo = new ProcessPaymentRequest();
-			return paymentInfo;
+			return new ProcessPaymentRequest();
 		}
 
-		[ValidateInput(false)]
+        [ValidateInput(false)]
 		public ActionResult PayFastResultHandler(FormCollection form)
 		{
-				string result = "";
-				bool ValidResponse = true;
+            //validation
+            Order order;
+            if (!ValidateITN(form, out order))
+                return new HttpStatusCodeResult(HttpStatusCode.OK);
 
-				NameValueCollection formVariables = Request.Form;
-				result = formVariables["payment_status"];
-				
-				int OrderID = Convert.ToInt32(formVariables["m_payment_id"]);
-				Order order = _orderService.GetOrderById(OrderID);
+            //paid order
+            if (_orderProcessingService.CanMarkOrderAsPaid(order))
+            {
+                order.AuthorizationTransactionId = form["pf_payment_id"];
+                _orderService.UpdateOrder(order);
+                _orderProcessingService.MarkOrderAsPaid(order);
+            }
 
-				NameValueCollection formVariablesWithoutHash = new NameValueCollection();
-				foreach (var item in formVariables.AllKeys.Where(x => x.ToLower() != "signature"))
-					formVariablesWithoutHash.Add(item, formVariables[item]);
+            return new HttpStatusCodeResult(HttpStatusCode.OK);
+        }
 
-				ValidResponse = PayFastPaymentProcessor.ValidateITNRequest(Request.ServerVariables["REMOTE_ADDR"], _logger);
-				ValidResponse =  PayFastPaymentProcessor.ValidateITNRequestData(formVariablesWithoutHash,_PayFastPaymentSettings,_logger);
-				
-				if (ValidResponse)//todo set to ValidResponse
-				{
-                    //Success
-					if ((result == "COMPLETE") && (formVariables["merchant_id"] == _PayFastPaymentSettings.merchant_id))
-					{
-						_logger.InsertLog(Core.Domain.Logging.LogLevel.Information, "Payment Result", "Success");
-						_orderProcessingService.MarkOrderAsPaid(order);
-						_orderService.UpdateOrder(order);
-                        return RedirectToRoute("CheckoutCompleted", new { orderId = order.Id });
-					}
-					//Failed
-					else
-					{
-						_logger.InsertLog(Core.Domain.Logging.LogLevel.Information, "Payment Result", "Failed");
-						var model = new PaymentResultModel();
-						model.OrderID = OrderID.ToString();
-                        model.Message = "Payment Failed";
-                        return View("~/Plugins/Payments.PayFast/Views/PaymentPayFast/PaymentResultView.cshtml", model);
-
-					}
-				}
-				else
-				{
-					var model = new PaymentResultModel();
-					model.OrderID = OrderID.ToString();
-					model.Message = "ValidateITNRequestData failed";
-
-                    return View("~/Plugins/Payments.PayFast/Views/PaymentPayFast/PaymentResultView.cshtml", model);
-				}
-		}
-	}
+        #endregion
+    }
 }

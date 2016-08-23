@@ -1,19 +1,14 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.Specialized;
 using System.Globalization;
-using System.IO;
-using System.Net;
-using System.Text;
-using System.Web;
 using System.Web.Routing;
 using Nop.Core;
 using Nop.Core.Domain.Orders;
-using Nop.Core.Domain.Payments;
 using Nop.Core.Plugins;
 using Nop.Plugin.Payments.PayFast.Controllers;
 using Nop.Services.Configuration;
-using Nop.Services.Logging;
+using Nop.Services.Localization;
+using Nop.Services.Orders;
 using Nop.Services.Payments;
 using Nop.Web.Framework;
 
@@ -26,121 +21,24 @@ namespace Nop.Plugin.Payments.PayFast
     {
         #region Fields
 
-        private readonly PayFastPaymentSettings _PayFastPaymentSettings;
+        private readonly IOrderTotalCalculationService _orderTotalCalculationService;
         private readonly ISettingService _settingService;
         private readonly IWebHelper _webHelper;
-
+        private readonly PayFastPaymentSettings _payFastPaymentSettings;
 
         #endregion
 
         #region Ctor
 
-        public PayFastPaymentProcessor(PayFast.PayFastPaymentSettings PayFastPaymentSettings,
-                                       ISettingService settingService, IWebHelper webHelper)
+        public PayFastPaymentProcessor(IOrderTotalCalculationService orderTotalCalculationService,
+            ISettingService settingService,
+            IWebHelper webHelper,
+            PayFastPaymentSettings payFastPaymentSettings)
         {
-            this._PayFastPaymentSettings = PayFastPaymentSettings;
+            this._orderTotalCalculationService = orderTotalCalculationService;
             this._settingService = settingService;
             this._webHelper = webHelper;
-        }
-
-        #endregion
-
-        #region Utilities
-
-
-        /// <summary>
-        /// Posts the data back to the payment processor to validate the data received
-        /// </summary>
-        public static bool ValidateITNRequestData(NameValueCollection formVariables,
-                                                  PayFastPaymentSettings PayFastPaymentSettings, ILogger _logger)
-        {
-            bool isValid = true;
-            try
-            {
-                StringBuilder sb = new StringBuilder();
-                bool first = true;
-                foreach (var item in formVariables)
-                {
-                    if (first) first = false;
-                    else sb.Append("&");
-                    sb.AppendFormat("{0}={1}", item.ToString(), HttpUtility.UrlEncode(formVariables[item.ToString()]));
-                }
-                byte[] postBytes = Encoding.ASCII.GetBytes(sb.ToString());
-                _logger.InsertLog(Core.Domain.Logging.LogLevel.Information, "Post String", sb.ToString(), null);
-
-                string validateUrl = PayFastPaymentSettings.ValidateUrl;
-                HttpWebRequest req = HttpWebRequest.Create(validateUrl) as HttpWebRequest;
-                req.Method = "POST";
-                req.ContentType = "application/x-www-form-urlencoded";
-                req.ContentLength = postBytes.Length;
-
-                // add post data to request
-                using (var postStream = req.GetRequestStream())
-                {
-                    postStream.Write(postBytes, 0, postBytes.Length);
-                }
-
-                string result = null;
-                using (var responseStream = new StreamReader(req.GetResponse().GetResponseStream()))
-                {
-                    result = HttpUtility.UrlDecode(responseStream.ReadToEnd());
-                    _logger.InsertLog(Core.Domain.Logging.LogLevel.Information, "Post response", result, null);
-                }
-
-                result = result.Replace("\r\n", " ").Replace("\r", "").Replace("\n", " ");
-                if (result == null || !result.StartsWith("VALID", StringComparison.OrdinalIgnoreCase))
-                {
-                    isValid = false;
-
-                }
-
-            }
-            catch (Exception ex)
-            {
-                _logger.InsertLog(Core.Domain.Logging.LogLevel.Error,
-                                  "PayFast ITN Request is invalid", ex.Message.ToString());
-                isValid = false;
-            }
-
-            return isValid;
-        }
-
-        public static bool ValidateITNRequest(String requestIp, ILogger _logger)
-        {
-            bool isValid = true;
-            string[] validSites = new string[]
-                {
-                    "www.payfast.co.za",
-                    "sandbox.payfast.co.za",
-                    "w1w.payfast.co.za",
-                    "w2w.payfast.co.za"
-                };
-
-            List<IPAddress> validIpAddresses = new List<IPAddress>();
-            foreach (var url in validSites)
-                validIpAddresses.AddRange(Dns.GetHostAddresses(url));
-
-            _logger.InsertLog(Core.Domain.Logging.LogLevel.Information,
-                              "IP of post source", requestIp);
-            if (string.IsNullOrEmpty(requestIp))
-            {
-                _logger.InsertLog(Core.Domain.Logging.LogLevel.Error,
-                                  "PayFast ITN Request is invalid", "The source IP address of the ITN request was null");
-                isValid = false;
-            }
-
-
-            if (isValid)
-                if (!validIpAddresses.Contains(IPAddress.Parse(requestIp)))
-                {
-                    _logger.InsertLog(Core.Domain.Logging.LogLevel.Error,
-                                      "PayFast ITN Request is invalid",
-                                      string.Format("The source IP address of the ITN request ({0}) is not valid",
-                                                    requestIp));
-                    isValid = false;
-                }
-
-            return isValid;
+            this._payFastPaymentSettings = payFastPaymentSettings;
         }
 
         #endregion
@@ -154,11 +52,7 @@ namespace Nop.Plugin.Payments.PayFast
         /// <returns>Process payment result</returns>
         public ProcessPaymentResult ProcessPayment(ProcessPaymentRequest processPaymentRequest)
         {
-            var result = new ProcessPaymentResult();
-
-            result.NewPaymentStatus = PaymentStatus.Pending;
-
-            return result;
+            return new ProcessPaymentResult();
         }
 
         /// <summary>
@@ -167,22 +61,29 @@ namespace Nop.Plugin.Payments.PayFast
         /// <param name="postProcessPaymentRequest">Payment info required for an order processing</param>
         public void PostProcessPayment(PostProcessPaymentRequest postProcessPaymentRequest)
         {
-            var post = new RemotePost();
-            var orderId = postProcessPaymentRequest.Order.Id.ToString();
-            var orderTotal = postProcessPaymentRequest.Order.OrderTotal.ToString("0.00", CultureInfo.InvariantCulture);
-            var storeLocation = _webHelper.GetStoreLocation(false);
+            var storeLocation = _webHelper.GetStoreLocation();
 
-            post.FormName = "PayFast";
-            post.Url = _PayFastPaymentSettings.Url;
-            post.Method = "POST";
-            post.Add("merchant_id", _PayFastPaymentSettings.merchant_id);
-            post.Add("merchant_key", _PayFastPaymentSettings.merchant_key);
-            post.Add("return_url", storeLocation + "orderdetails/" + orderId);
-            post.Add("cancel_url", storeLocation + "orderdetails/" + orderId);
-            post.Add("notify_url", storeLocation + "Plugins/PaymentPayFast/PaymentResult");
-            post.Add("m_payment_id", orderId);
-            post.Add("amount", orderTotal);
-            post.Add("item_name", "Online Purchase, Order number: " + orderId);
+            var post = new RemotePost
+            {
+                FormName = "PayFast",
+                Method = "POST",
+                Url = string.Format("{0}/eng/process?", _payFastPaymentSettings.UseSandbox ? "https://sandbox.payfast.co.za" : "https://www.payfast.co.za")
+            };
+            post.Add("merchant_id", _payFastPaymentSettings.MerchantId);
+            post.Add("merchant_key", _payFastPaymentSettings.MerchantKey);
+            post.Add("return_url", string.Format("{0}checkout/completed/{1}", storeLocation, postProcessPaymentRequest.Order.Id));
+            post.Add("cancel_url", string.Format("{0}orderdetails/{1}", storeLocation, postProcessPaymentRequest.Order.Id));
+            post.Add("notify_url", string.Format("{0}Plugins/PaymentPayFast/PaymentResult", storeLocation));
+            post.Add("m_payment_id", postProcessPaymentRequest.Order.OrderGuid.ToString());
+            post.Add("amount", postProcessPaymentRequest.Order.OrderTotal.ToString("0.00", CultureInfo.InvariantCulture));
+            post.Add("item_name", string.Format("Order #{0}", postProcessPaymentRequest.Order.Id));
+            if (postProcessPaymentRequest.Order.BillingAddress != null)
+            {
+                post.Add("name_first", postProcessPaymentRequest.Order.BillingAddress.FirstName);
+                post.Add("name_last", postProcessPaymentRequest.Order.BillingAddress.LastName);
+                post.Add("email_address", postProcessPaymentRequest.Order.BillingAddress.Email);
+            }
+
             post.Post();
         }
 
@@ -205,7 +106,9 @@ namespace Nop.Plugin.Payments.PayFast
         /// <returns>Additional handling fee</returns>
         public decimal GetAdditionalHandlingFee(IList<ShoppingCartItem> cart)
         {
-            return 0;
+            var result = this.CalculateAdditionalFee(_orderTotalCalculationService, cart,
+                _payFastPaymentSettings.AdditionalFee, _payFastPaymentSettings.AdditionalFeePercentage);
+            return result;
         }
 
         /// <summary>
@@ -253,7 +156,6 @@ namespace Nop.Plugin.Payments.PayFast
         {
             var result = new ProcessPaymentResult();
             result.AddError("Recurring Payment method not supported");
-
             return result;
         }
 
@@ -280,14 +182,7 @@ namespace Nop.Plugin.Payments.PayFast
             if (order == null)
                 throw new ArgumentNullException("order");
 
-            if (order.OrderStatus == OrderStatus.Pending)
-            {
-                return true;
-            }
-            else
-            {
-                return false;
-            }
+            return order.OrderStatus == OrderStatus.Pending;
         }
 
         /// <summary>
@@ -296,16 +191,11 @@ namespace Nop.Plugin.Payments.PayFast
         /// <param name="actionName">Action name</param>
         /// <param name="controllerName">Controller name</param>
         /// <param name="routeValues">Route values</param>
-        public void GetConfigurationRoute(out string actionName, out string controllerName,
-                                          out RouteValueDictionary routeValues)
+        public void GetConfigurationRoute(out string actionName, out string controllerName, out RouteValueDictionary routeValues)
         {
             actionName = "Configure";
             controllerName = "PaymentPayFast";
-            routeValues = new RouteValueDictionary()
-                {
-                    {"Namespaces", "Nop.Plugin.Payments.PayFast.Controllers"},
-                    {"area", null}
-                };
+            routeValues = new RouteValueDictionary { { "Namespaces", "Nop.Plugin.Payments.PayFast.Controllers" }, { "area", null } };
         }
 
         /// <summary>
@@ -314,38 +204,72 @@ namespace Nop.Plugin.Payments.PayFast
         /// <param name="actionName">Action name</param>
         /// <param name="controllerName">Controller name</param>
         /// <param name="routeValues">Route values</param>
-        public void GetPaymentInfoRoute(out string actionName, out string controllerName,
-                                        out RouteValueDictionary routeValues)
+        public void GetPaymentInfoRoute(out string actionName, out string controllerName, out RouteValueDictionary routeValues)
         {
             actionName = "PaymentInfo";
             controllerName = "PaymentPayFast";
-            routeValues = new RouteValueDictionary()
-                {
-                    {"Namespaces", "Nop.Plugin.Payments.PayFast.Controllers"},
-                    {"area", null}
-                };
+            routeValues = new RouteValueDictionary { { "Namespaces", "Nop.Plugin.Payments.PayFast.Controllers" }, { "area", null } };
         }
 
+        /// <summary>
+        /// Get type of the controller
+        /// </summary>
+        /// <returns>Controller type</returns>
         public Type GetControllerType()
         {
-            return typeof (PaymentPayFastController);
+            return typeof(PaymentPayFastController);
         }
 
+        /// <summary>
+        /// Install the plugin
+        /// </summary>
         public override void Install()
         {
-            var settings = new PayFastPaymentSettings()
-                {
-                    Url = "https://sandbox.payfast.co.za/eng/process",
-                    ValidateUrl = "https://sandbox.payfast.co.za/eng/query/validate",
-                    merchant_id = "10000103",
-                    merchant_key = "479f49451e829"
+            //settings
+            _settingService.SaveSetting(new PayFastPaymentSettings
+            {
+                UseSandbox = true
+            });
 
-                };
-            _settingService.SaveSetting(settings);
+            //locales
+            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.AdditionalFee", "Additional fee");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.AdditionalFee.Hint", "Enter additional fee to charge your customers.");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.AdditionalFeePercentage", "Additional fee. Use percentage");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.AdditionalFeePercentage.Hint", "Determines whether to apply a percentage additional fee to the order total. If not enabled, a fixed value is used.");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.MerchantId", "Merchant ID");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.MerchantId.Hint", "Specify merchant ID.");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.MerchantKey", "Merchant key");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.MerchantKey.Hint", "Specify merchant key.");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.UseSandbox", "Use Sandbox");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.UseSandbox.Hint", "Check to enable Sandbox (testing environment).");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.RedirectionTip", "You will be redirected to PayFast site to complete the order.");
 
             base.Install();
         }
 
+        /// <summary>
+        /// Uninstall the plugin
+        /// </summary>
+        public override void Uninstall()
+        {
+            //settings
+            _settingService.DeleteSetting<PayFastPaymentSettings>();
+
+            //locales
+            this.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.AdditionalFee");
+            this.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.AdditionalFee.Hint");
+            this.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.AdditionalFeePercentage");
+            this.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.AdditionalFeePercentage.Hint");
+            this.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.MerchantId");
+            this.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.MerchantId.Hint");
+            this.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.MerchantKey");
+            this.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.MerchantKey.Hint");
+            this.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.UseSandbox");
+            this.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.UseSandbox.Hint");
+            this.DeletePluginLocaleResource("Plugins.Payments.PayFast.RedirectionTip");
+
+            base.Uninstall();
+        }
 
         #endregion
 
@@ -388,7 +312,7 @@ namespace Nop.Plugin.Payments.PayFast
         /// </summary>
         public RecurringPaymentType RecurringPaymentType
         {
-            get { return RecurringPaymentType.Manual; }
+            get { return RecurringPaymentType.NotSupported; }
         }
 
         /// <summary>

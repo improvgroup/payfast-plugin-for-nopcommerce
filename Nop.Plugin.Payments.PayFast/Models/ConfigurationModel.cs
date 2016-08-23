@@ -1,21 +1,23 @@
-﻿using System.ComponentModel;
-using System.Web.Mvc;
+﻿using Nop.Web.Framework;
 using Nop.Web.Framework.Mvc;
 
 namespace Nop.Plugin.Payments.PayFast.Models
 {
     public class ConfigurationModel : BaseNopModel
     {
-        [DisplayName("Url")]
-        public string Url { get; set; }
+        [NopResourceDisplayName("Plugins.Payments.PayFast.Fields.MerchantId")]
+        public string MerchantId { get; set; }
 
-        [DisplayName("Validate Url")]
-        public string ValidateUrl { get; set; }
-        
-        [DisplayName("Merchant ID")]
-        public string merchant_id { get; set; }
+        [NopResourceDisplayName("Plugins.Payments.PayFast.Fields.MerchantKey")]
+        public string MerchantKey { get; set; }
 
-        [DisplayName("Merchant Key")]
-        public string merchant_key { get; set; }
+        [NopResourceDisplayName("Plugins.Payments.PayFast.Fields.UseSandbox")]
+        public bool UseSandbox { get; set; }
+
+        [NopResourceDisplayName("Plugins.Payments.PayFast.Fields.AdditionalFee")]
+        public decimal AdditionalFee { get; set; }
+
+        [NopResourceDisplayName("Plugins.Payments.PayFast.Fields.AdditionalFeePercentage")]
+        public bool AdditionalFeePercentage { get; set; }
     }
 }

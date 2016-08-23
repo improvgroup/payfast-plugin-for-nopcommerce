@@ -4,58 +4,67 @@
 @model ConfigurationModel
 @using Nop.Plugin.Payments.PayFast.Models;
 @using Nop.Web.Framework;
+
 @using (Html.BeginForm())
 {
     @Html.AntiForgeryToken()
-    <table class="adminContent">
-    <tr>
-        <td colspan="2">
-            <b>PayFast Standard Configuration</b>
-        </td>
-    </tr>
-     <tr>
-        <td class="adminTitle">
-                @Html.NopLabelFor(model => model.Url):
-            </td>
-            <td class="adminData">
-                @Html.EditorFor(model => model.Url)
-                @Html.ValidationMessageFor(model => model.Url)
-            </td>
-        </tr>
-           <tr>
-            <td class="adminTitle">
-                @Html.NopLabelFor(model => model.ValidateUrl):
-            </td>
-            <td class="adminData">
-                @Html.EditorFor(model => model.ValidateUrl)
-                @Html.ValidationMessageFor(model => model.ValidateUrl)
-            </td>
-        </tr>
-        <tr>
-            <td class="adminTitle">
-                @Html.NopLabelFor(model => model.merchant_id):
-            </td>
-            <td class="adminData">
-                @Html.EditorFor(model => model.merchant_id)
-                @Html.ValidationMessageFor(model => model.merchant_id)
-            </td>
-        </tr>
-        <tr>
-            <td class="adminTitle">
-                @Html.NopLabelFor(model => model.merchant_key):
-            </td>
-            <td class="adminData">
-                @Html.EditorFor(model => model.merchant_key)
-                @Html.ValidationMessageFor(model => model.merchant_key)
-            </td>
-        </tr>
-        <tr>
-            <td colspan="2">
-                <button type="submit" name="save" value="save" class="k-button">
-                    Save</button>
-            </td>
-        </tr>
-
-    </table>
+    <div class="panel-group">
+        <div class="panel panel-default">
+            <div class="panel-body">
+                <div class="form-group">
+                    <div class="col-md-3">
+                        @Html.NopLabelFor(model => model.MerchantId)
+                    </div>
+                    <div class="col-md-9">
+                        @Html.NopEditorFor(model => model.MerchantId)
+                        @Html.ValidationMessageFor(model => model.MerchantId)
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="col-md-3">
+                        @Html.NopLabelFor(model => model.MerchantKey)
+                    </div>
+                    <div class="col-md-9">
+                        @Html.NopEditorFor(model => model.MerchantKey)
+                        @Html.ValidationMessageFor(model => model.MerchantKey)
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="col-md-3">
+                        @Html.NopLabelFor(model => model.UseSandbox)
+                    </div>
+                    <div class="col-md-9">
+                        @Html.NopEditorFor(model => model.UseSandbox)
+                        @Html.ValidationMessageFor(model => model.UseSandbox)
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="col-md-3">
+                        @Html.NopLabelFor(model => model.AdditionalFee)
+                    </div>
+                    <div class="col-md-9">
+                        @Html.NopEditorFor(model => model.AdditionalFee)
+                        @Html.ValidationMessageFor(model => model.AdditionalFee)
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="col-md-3">
+                        @Html.NopLabelFor(model => model.AdditionalFeePercentage)
+                    </div>
+                    <div class="col-md-9">
+                        @Html.NopEditorFor(model => model.AdditionalFeePercentage)
+                        @Html.ValidationMessageFor(model => model.AdditionalFeePercentage)
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="col-md-9 col-md-offset-3">
+                        <button type="submit" class="btn btn-primary">
+                            @T("Admin.Common.Save")
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
     
 }
