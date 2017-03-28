@@ -25,6 +25,7 @@ namespace Nop.Plugin.Payments.PayFast
         private readonly ISettingService _settingService;
         private readonly IWebHelper _webHelper;
         private readonly PayFastPaymentSettings _payFastPaymentSettings;
+        private readonly ILocalizationService _localizationService;
 
         #endregion
 
@@ -33,12 +34,14 @@ namespace Nop.Plugin.Payments.PayFast
         public PayFastPaymentProcessor(IOrderTotalCalculationService orderTotalCalculationService,
             ISettingService settingService,
             IWebHelper webHelper,
-            PayFastPaymentSettings payFastPaymentSettings)
+            PayFastPaymentSettings payFastPaymentSettings,
+            ILocalizationService localizationService)
         {
             this._orderTotalCalculationService = orderTotalCalculationService;
             this._settingService = settingService;
             this._webHelper = webHelper;
             this._payFastPaymentSettings = payFastPaymentSettings;
+            this._localizationService = localizationService;
         }
 
         #endregion
@@ -243,6 +246,7 @@ namespace Nop.Plugin.Payments.PayFast
             this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.UseSandbox", "Use Sandbox");
             this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.UseSandbox.Hint", "Check to enable Sandbox (testing environment).");
             this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.RedirectionTip", "You will be redirected to PayFast site to complete the order.");
+            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.PaymentMethodDescription", "You will be redirected to PayFast site to complete the order.");
 
             base.Install();
         }
@@ -267,6 +271,7 @@ namespace Nop.Plugin.Payments.PayFast
             this.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.UseSandbox");
             this.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.UseSandbox.Hint");
             this.DeletePluginLocaleResource("Plugins.Payments.PayFast.RedirectionTip");
+            this.DeletePluginLocaleResource("Plugins.Payments.PayFast.PaymentMethodDescription");
 
             base.Uninstall();
         }
@@ -329,6 +334,14 @@ namespace Nop.Plugin.Payments.PayFast
         public bool SkipPaymentInfo
         {
             get { return false; }
+        }
+
+        /// <summary>
+        /// Gets a payment method description that will be displayed on checkout pages in the public store
+        /// </summary>
+        public string PaymentMethodDescription
+        {
+            get { return _localizationService.GetResource("Plugins.Payments.PayFast.PaymentMethodDescription"); }
         }
 
         #endregion

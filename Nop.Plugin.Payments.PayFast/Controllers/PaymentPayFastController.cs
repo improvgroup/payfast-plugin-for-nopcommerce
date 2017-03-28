@@ -162,7 +162,7 @@ namespace Nop.Plugin.Payments.PayFast.Controllers
                 AdditionalFeePercentage = _payFastPaymentSettings.AdditionalFeePercentage
             };
 
-            return View("~/Plugins/Payments.PayFast/Views/PaymentPayFast/Configure.cshtml", model);
+            return View("~/Plugins/Payments.PayFast/Views/Configure.cshtml", model);
 		}
 
 		[HttpPost]
@@ -189,7 +189,7 @@ namespace Nop.Plugin.Payments.PayFast.Controllers
 		[ChildActionOnly]
 		public ActionResult PaymentInfo()
 		{
-            return View("~/Plugins/Payments.PayFast/Views/PaymentPayFast/PaymentInfo.cshtml");
+            return View("~/Plugins/Payments.PayFast/Views/PaymentInfo.cshtml");
 		}
 
 		[NonAction]
