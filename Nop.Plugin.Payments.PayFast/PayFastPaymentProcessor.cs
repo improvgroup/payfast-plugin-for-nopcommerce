@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Web.Routing;
+using Microsoft.AspNetCore.Http;
 using Nop.Core;
 using Nop.Core.Domain.Orders;
 using Nop.Core.Plugins;
@@ -70,16 +70,16 @@ namespace Nop.Plugin.Payments.PayFast
             {
                 FormName = "PayFast",
                 Method = "POST",
-                Url = string.Format("{0}/eng/process?", _payFastPaymentSettings.UseSandbox ? "https://sandbox.payfast.co.za" : "https://www.payfast.co.za")
+                Url = $"{(_payFastPaymentSettings.UseSandbox ? "https://sandbox.payfast.co.za" : "https://www.payfast.co.za")}/eng/process?"
             };
             post.Add("merchant_id", _payFastPaymentSettings.MerchantId);
             post.Add("merchant_key", _payFastPaymentSettings.MerchantKey);
-            post.Add("return_url", string.Format("{0}checkout/completed/{1}", storeLocation, postProcessPaymentRequest.Order.Id));
-            post.Add("cancel_url", string.Format("{0}orderdetails/{1}", storeLocation, postProcessPaymentRequest.Order.Id));
-            post.Add("notify_url", string.Format("{0}Plugins/PaymentPayFast/PaymentResult", storeLocation));
+            post.Add("return_url", $"{storeLocation}checkout/completed/{postProcessPaymentRequest.Order.Id}");
+            post.Add("cancel_url", $"{storeLocation}orderdetails/{postProcessPaymentRequest.Order.Id}");
+            post.Add("notify_url", $"{storeLocation}Plugins/PaymentPayFast/PaymentResult");
             post.Add("m_payment_id", postProcessPaymentRequest.Order.OrderGuid.ToString());
             post.Add("amount", postProcessPaymentRequest.Order.OrderTotal.ToString("0.00", CultureInfo.InvariantCulture));
-            post.Add("item_name", string.Format("Order #{0}", postProcessPaymentRequest.Order.Id));
+            post.Add("item_name", $"Order #{postProcessPaymentRequest.Order.Id}");
             if (postProcessPaymentRequest.Order.BillingAddress != null)
             {
                 post.Add("name_first", postProcessPaymentRequest.Order.BillingAddress.FirstName);
@@ -188,30 +188,24 @@ namespace Nop.Plugin.Payments.PayFast
             return order.OrderStatus == OrderStatus.Pending;
         }
 
-        /// <summary>
-        /// Gets a route for provider configuration
-        /// </summary>
-        /// <param name="actionName">Action name</param>
-        /// <param name="controllerName">Controller name</param>
-        /// <param name="routeValues">Route values</param>
-        public void GetConfigurationRoute(out string actionName, out string controllerName, out RouteValueDictionary routeValues)
+        public IList<string> ValidatePaymentForm(IFormCollection form)
         {
-            actionName = "Configure";
-            controllerName = "PaymentPayFast";
-            routeValues = new RouteValueDictionary { { "Namespaces", "Nop.Plugin.Payments.PayFast.Controllers" }, { "area", null } };
+            return new List<string>();
+        }
+        
+        public  ProcessPaymentRequest GetPaymentInfo(IFormCollection form)
+        {
+            return new ProcessPaymentRequest();
         }
 
-        /// <summary>
-        /// Gets a route for payment info
-        /// </summary>
-        /// <param name="actionName">Action name</param>
-        /// <param name="controllerName">Controller name</param>
-        /// <param name="routeValues">Route values</param>
-        public void GetPaymentInfoRoute(out string actionName, out string controllerName, out RouteValueDictionary routeValues)
+        public override string GetConfigurationPageUrl()
         {
-            actionName = "PaymentInfo";
-            controllerName = "PaymentPayFast";
-            routeValues = new RouteValueDictionary { { "Namespaces", "Nop.Plugin.Payments.PayFast.Controllers" }, { "area", null } };
+            return $"{_webHelper.GetStoreLocation()}Admin/PaymentPayFast/Configure";
+        }
+
+        public void GetPublicViewComponent(out string viewComponentName)
+        {
+            viewComponentName = "PaymentPayFast";
         }
 
         /// <summary>

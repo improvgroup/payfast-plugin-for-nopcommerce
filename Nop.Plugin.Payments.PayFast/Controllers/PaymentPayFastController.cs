@@ -1,32 +1,37 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.IO;
 using System.Text;
-using System.Web;
-using System.Web.Mvc;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.WebUtilities;
+using Nop.Core;
 using Nop.Core.Domain.Orders;
 using Nop.Plugin.Payments.PayFast.Models;
 using Nop.Services.Configuration;
 using Nop.Services.Localization;
 using Nop.Services.Logging;
 using Nop.Services.Orders;
-using Nop.Services.Payments;
+using Nop.Services.Security;
+using Nop.Web.Framework;
 using Nop.Web.Framework.Controllers;
+using Nop.Web.Framework.Mvc.Filters;
 
 namespace Nop.Plugin.Payments.PayFast.Controllers
 {
-	public class PaymentPayFastController : BasePaymentController
-	{
+    public class PaymentPayFastController : BasePaymentController
+    {
         #region Fields
 
         private readonly ILocalizationService _localizationService;
         private readonly ILogger _logger;
         private readonly IOrderProcessingService _orderProcessingService;
         private readonly IOrderService _orderService;
-        private readonly ISettingService _settingService;		
+        private readonly ISettingService _settingService;
         private readonly PayFastPaymentSettings _payFastPaymentSettings;
+        private readonly IWebHelper _webHelper;
+        private readonly IPermissionService _permissionService;
 
         #endregion
 
@@ -37,14 +42,18 @@ namespace Nop.Plugin.Payments.PayFast.Controllers
             IOrderProcessingService orderProcessingService,
             IOrderService orderService,
             ISettingService settingService,
-            PayFastPaymentSettings payFastPaymentSettings)
-	    {
+            PayFastPaymentSettings payFastPaymentSettings,
+            IWebHelper webHelper,
+            IPermissionService permissionService)
+        {
             this._localizationService = localizationService;
             this._logger = logger;
             this._orderProcessingService = orderProcessingService;
             this._orderService = orderService;
             this._settingService = settingService;
             this._payFastPaymentSettings = payFastPaymentSettings;
+            this._webHelper = webHelper;
+            this._permissionService = permissionService;
         }
 
         #endregion
@@ -57,32 +66,30 @@ namespace Nop.Plugin.Payments.PayFast.Controllers
         /// <param name="form">List of parameters</param>
         /// <param name="order">Order</param>
         /// <returns>true if there are no errors; otherwise false</returns>
-        protected bool ValidateITN(FormCollection form, out Order order)
+        protected bool ValidateITN(IFormCollection form, out Order order)
         {
             order = null;
 
             //validate order
-            Guid orderGuid;
-            if (!Guid.TryParse(form["m_payment_id"], out orderGuid))
+            if (!Guid.TryParse(form["m_payment_id"], out Guid orderGuid))
                 return false;
 
             order = _orderService.GetOrderByGuid(orderGuid);
             if (order == null)
             {
-                _logger.Error(string.Format("PayFast ITN error: Order with guid {0} is not found", orderGuid));
+                _logger.Error($"PayFast ITN error: Order with guid {orderGuid} is not found");
                 return false;
             }
 
             //validate merchant ID
-            if (!form["merchant_id"].Equals(_payFastPaymentSettings.MerchantId, StringComparison.InvariantCulture))
+            if (!form["merchant_id"].ToString().Equals(_payFastPaymentSettings.MerchantId, StringComparison.InvariantCulture))
             {
                 _logger.Error("PayFast ITN error: Merchant ID mismatch");
                 return false;
             }
 
             //validate IP address
-            IPAddress ipAddress;
-            if (!IPAddress.TryParse(Request.ServerVariables["REMOTE_ADDR"], out ipAddress))
+            if (!IPAddress.TryParse(_webHelper.GetCurrentIpAddress(), out IPAddress ipAddress))
             {
                 _logger.Error("PayFast ITN error: IP address is empty");
                 return false;
@@ -94,20 +101,23 @@ namespace Nop.Plugin.Payments.PayFast.Controllers
                 "sandbox.payfast.co.za",
                 "w1w.payfast.co.za",
                 "w2w.payfast.co.za"
-            }.SelectMany(dns => Dns.GetHostAddresses(dns));
+            }.SelectMany(Dns.GetHostAddresses);
+
             if (!validIPs.Contains(ipAddress))
             {
-                _logger.Error(string.Format("PayFast ITN error: IP address {0} is not valid", ipAddress));
+                _logger.Error($"PayFast ITN error: IP address {ipAddress} is not valid");
                 return false;
             }
 
             //validate data
-            form.Remove("signature");
-            var parameters = HttpUtility.ParseQueryString(string.Empty);
-            parameters.Add(form);
+            var parameters = QueryHelpers.ParseQuery(string.Empty);
+            foreach (var pair in form)
+            {
+                if (pair.Key.Equals("signature", StringComparison.InvariantCultureIgnoreCase))
+                    parameters.Add(pair.Key, pair.Value);
+            }
             var postData = Encoding.Default.GetBytes(parameters.ToString());
-            var request = (HttpWebRequest)WebRequest.Create(string.Format("{0}/eng/query/validate",
-                _payFastPaymentSettings.UseSandbox ? "https://sandbox.payfast.co.za" : "https://www.payfast.co.za"));
+            var request = (HttpWebRequest)WebRequest.Create($"{(_payFastPaymentSettings.UseSandbox ? "https://sandbox.payfast.co.za" : "https://www.payfast.co.za")}/eng/query/validate");
             request.Method = "POST";
             request.ContentType = "application/x-www-form-urlencoded";
             request.ContentLength = postData.Length;
@@ -121,7 +131,7 @@ namespace Nop.Plugin.Payments.PayFast.Controllers
                 var httpResponse = (HttpWebResponse)request.GetResponse();
                 using (var streamReader = new StreamReader(httpResponse.GetResponseStream()))
                 {
-                    var responseParams = HttpUtility.ParseQueryString(streamReader.ReadToEnd());
+                    var responseParams = QueryHelpers.ParseQuery(streamReader.ReadToEnd());
                     if (!responseParams.ToString().StartsWith("VALID", StringComparison.InvariantCulture))
                     {
                         _logger.Error("PayFast ITN error: passed data is not valid");
@@ -136,9 +146,9 @@ namespace Nop.Plugin.Payments.PayFast.Controllers
             }
 
             //validate payment status
-            if (!form["payment_status"].Equals("COMPLETE", StringComparison.InvariantCulture))
+            if (!form["payment_status"].ToString().Equals("COMPLETE", StringComparison.InvariantCulture))
             {
-                _logger.Error(string.Format("PayFast ITN error: order #{0} is {1}", order.Id, form["payment_status"]));
+                _logger.Error($"PayFast ITN error: order #{order.Id} is {form["payment_status"]}");
                 return false;
             }
 
@@ -149,10 +159,13 @@ namespace Nop.Plugin.Payments.PayFast.Controllers
 
         #region Methods
 
-        [AdminAuthorize]
-		[ChildActionOnly]
-		public ActionResult Configure()
-		{
+        [AuthorizeAdmin]
+        [Area(AreaNames.Admin)]
+        public IActionResult Configure()
+        {
+            if (!_permissionService.Authorize(StandardPermissionProvider.ManagePaymentMethods))
+                return AccessDeniedView();
+
             var model = new ConfigurationModel
             {
                 MerchantId = _payFastPaymentSettings.MerchantId,
@@ -163,20 +176,23 @@ namespace Nop.Plugin.Payments.PayFast.Controllers
             };
 
             return View("~/Plugins/Payments.PayFast/Views/Configure.cshtml", model);
-		}
+        }
 
-		[HttpPost]
-		[AdminAuthorize]
-		[ChildActionOnly]
-		public ActionResult Configure(ConfigurationModel model)
-		{
+        [HttpPost]
+        [AuthorizeAdmin]
+        [Area(AreaNames.Admin)]
+        public IActionResult Configure(ConfigurationModel model)
+        {
+            if (!_permissionService.Authorize(StandardPermissionProvider.ManagePaymentMethods))
+                return AccessDeniedView();
+
             if (!ModelState.IsValid)
                 return Configure();
 
             _payFastPaymentSettings.MerchantId = model.MerchantId;
-			_payFastPaymentSettings.MerchantKey = model.MerchantKey;
-			_payFastPaymentSettings.UseSandbox = model.UseSandbox;
-			_payFastPaymentSettings.AdditionalFee = model.AdditionalFee;
+            _payFastPaymentSettings.MerchantKey = model.MerchantKey;
+            _payFastPaymentSettings.UseSandbox = model.UseSandbox;
+            _payFastPaymentSettings.AdditionalFee = model.AdditionalFee;
             _payFastPaymentSettings.AdditionalFeePercentage = model.AdditionalFeePercentage;
 
             _settingService.SaveSetting(_payFastPaymentSettings);
@@ -184,33 +200,15 @@ namespace Nop.Plugin.Payments.PayFast.Controllers
             SuccessNotification(_localizationService.GetResource("Admin.Plugins.Saved"));
 
             return Configure();
-		}
+        }
 
-		[ChildActionOnly]
-		public ActionResult PaymentInfo()
-		{
-            return View("~/Plugins/Payments.PayFast/Views/PaymentInfo.cshtml");
-		}
+        public IActionResult PayFastResultHandler()
+        {
+            var form = Request.Form;
 
-		[NonAction]
-		public override IList<string> ValidatePaymentForm(FormCollection form)
-		{
-			return new List<string>();
-		}
-
-		[NonAction]
-		public override ProcessPaymentRequest GetPaymentInfo(FormCollection form)
-		{
-			return new ProcessPaymentRequest();
-		}
-
-        [ValidateInput(false)]
-		public ActionResult PayFastResultHandler(FormCollection form)
-		{
             //validation
-            Order order;
-            if (!ValidateITN(form, out order))
-                return new HttpStatusCodeResult(HttpStatusCode.OK);
+            if (!ValidateITN(form, out Order order))
+                return new StatusCodeResult((int)HttpStatusCode.OK);
 
             //paid order
             if (_orderProcessingService.CanMarkOrderAsPaid(order))
@@ -220,7 +218,7 @@ namespace Nop.Plugin.Payments.PayFast.Controllers
                 _orderProcessingService.MarkOrderAsPaid(order);
             }
 
-            return new HttpStatusCodeResult(HttpStatusCode.OK);
+            return new StatusCodeResult((int)HttpStatusCode.OK);
         }
 
         #endregion
