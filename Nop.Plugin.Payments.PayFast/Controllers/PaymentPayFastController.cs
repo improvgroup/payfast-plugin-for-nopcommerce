@@ -202,9 +202,9 @@ namespace Nop.Plugin.Payments.PayFast.Controllers
             return Configure();
         }
 
-        public IActionResult PayFastResultHandler()
+        public IActionResult PayFastResultHandler(IpnModel model)
         {
-            var form = Request.Form;
+            var form = model.Form;
 
             //validation
             if (!ValidateITN(form, out Order order))
