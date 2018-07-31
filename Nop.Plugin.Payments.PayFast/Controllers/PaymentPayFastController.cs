@@ -1,11 +1,10 @@
 ﻿using System;
+using System.Collections.Specialized;
 using System.Linq;
 using System.Net;
-using System.IO;
 using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.WebUtilities;
 using Nop.Core;
 using Nop.Core.Domain.Orders;
 using Nop.Plugin.Payments.PayFast.Models;
@@ -18,6 +17,7 @@ using Nop.Web.Framework;
 using Nop.Web.Framework.Controllers;
 using Nop.Web.Framework.Mvc.Filters;
 
+
 namespace Nop.Plugin.Payments.PayFast.Controllers
 {
     public class PaymentPayFastController : BasePaymentController
@@ -28,10 +28,10 @@ namespace Nop.Plugin.Payments.PayFast.Controllers
         private readonly ILogger _logger;
         private readonly IOrderProcessingService _orderProcessingService;
         private readonly IOrderService _orderService;
-        private readonly ISettingService _settingService;
-        private readonly PayFastPaymentSettings _payFastPaymentSettings;
-        private readonly IWebHelper _webHelper;
         private readonly IPermissionService _permissionService;
+        private readonly ISettingService _settingService;
+        private readonly IWebHelper _webHelper;
+        private readonly PayFastPaymentSettings _payFastPaymentSettings;
 
         #endregion
 
@@ -41,19 +41,20 @@ namespace Nop.Plugin.Payments.PayFast.Controllers
             ILogger logger,
             IOrderProcessingService orderProcessingService,
             IOrderService orderService,
+            IPermissionService permissionService,
             ISettingService settingService,
-            PayFastPaymentSettings payFastPaymentSettings,
             IWebHelper webHelper,
-            IPermissionService permissionService)
+            PayFastPaymentSettings payFastPaymentSettings)
         {
             this._localizationService = localizationService;
             this._logger = logger;
             this._orderProcessingService = orderProcessingService;
             this._orderService = orderService;
-            this._settingService = settingService;
-            this._payFastPaymentSettings = payFastPaymentSettings;
-            this._webHelper = webHelper;
             this._permissionService = permissionService;
+            this._settingService = settingService;
+            this._webHelper = webHelper;
+            this._payFastPaymentSettings = payFastPaymentSettings;
+
         }
 
         #endregion
@@ -110,29 +111,28 @@ namespace Nop.Plugin.Payments.PayFast.Controllers
             }
 
             //validate data
-            var parameters = QueryHelpers.ParseQuery(string.Empty);
+           var postData = new NameValueCollection();
+
             foreach (var pair in form)
             {
-                if (pair.Key.Equals("signature", StringComparison.InvariantCultureIgnoreCase))
-                    parameters.Add(pair.Key, pair.Value);
+                if (!pair.Key.Equals("signature", StringComparison.InvariantCultureIgnoreCase))
+                {
+                    postData.Add(pair.Key, pair.Value);
+                }
             }
-            var postData = Encoding.Default.GetBytes(parameters.ToString());
-            var request = (HttpWebRequest)WebRequest.Create($"{(_payFastPaymentSettings.UseSandbox ? "https://sandbox.payfast.co.za" : "https://www.payfast.co.za")}/eng/query/validate");
-            request.Method = "POST";
-            request.ContentType = "application/x-www-form-urlencoded";
-            request.ContentLength = postData.Length;
 
             try
             {
-                using (var stream = request.GetRequestStream())
+                var site = $"{(_payFastPaymentSettings.UseSandbox ? "https://sandbox.payfast.co.za" : "https://www.payfast.co.za")}/eng/query/validate";
+
+                using (var webClient = new WebClient())
                 {
-                    stream.Write(postData, 0, postData.Length);
-                }
-                var httpResponse = (HttpWebResponse)request.GetResponse();
-                using (var streamReader = new StreamReader(httpResponse.GetResponseStream()))
-                {
-                    var responseParams = QueryHelpers.ParseQuery(streamReader.ReadToEnd());
-                    if (!responseParams.ToString().StartsWith("VALID", StringComparison.InvariantCulture))
+                    var response = webClient.UploadValues(site, postData);
+
+                    // Get the response and replace the line breaks with spaces
+                    var result = Encoding.ASCII.GetString(response);
+
+                    if (!result.StartsWith("VALID", StringComparison.InvariantCulture))
                     {
                         _logger.Error("PayFast ITN error: passed data is not valid");
                         return false;

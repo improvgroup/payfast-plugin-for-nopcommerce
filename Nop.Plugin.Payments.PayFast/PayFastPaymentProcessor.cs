@@ -5,7 +5,6 @@ using Microsoft.AspNetCore.Http;
 using Nop.Core;
 using Nop.Core.Domain.Orders;
 using Nop.Core.Plugins;
-using Nop.Plugin.Payments.PayFast.Controllers;
 using Nop.Services.Configuration;
 using Nop.Services.Localization;
 using Nop.Services.Orders;
@@ -21,27 +20,27 @@ namespace Nop.Plugin.Payments.PayFast
     {
         #region Fields
 
-        private readonly IOrderTotalCalculationService _orderTotalCalculationService;
+        private readonly ILocalizationService _localizationService;
+        private readonly IPaymentService _paymentService;
         private readonly ISettingService _settingService;
         private readonly IWebHelper _webHelper;
         private readonly PayFastPaymentSettings _payFastPaymentSettings;
-        private readonly ILocalizationService _localizationService;
 
         #endregion
 
         #region Ctor
 
-        public PayFastPaymentProcessor(IOrderTotalCalculationService orderTotalCalculationService,
+        public PayFastPaymentProcessor(ILocalizationService localizationService,
+            IPaymentService paymentService,
             ISettingService settingService,
             IWebHelper webHelper,
-            PayFastPaymentSettings payFastPaymentSettings,
-            ILocalizationService localizationService)
+            PayFastPaymentSettings payFastPaymentSettings)
         {
-            this._orderTotalCalculationService = orderTotalCalculationService;
+            this._localizationService = localizationService;
+            this._paymentService = paymentService;
             this._settingService = settingService;
             this._webHelper = webHelper;
             this._payFastPaymentSettings = payFastPaymentSettings;
-            this._localizationService = localizationService;
         }
 
         #endregion
@@ -109,9 +108,8 @@ namespace Nop.Plugin.Payments.PayFast
         /// <returns>Additional handling fee</returns>
         public decimal GetAdditionalHandlingFee(IList<ShoppingCartItem> cart)
         {
-            var result = this.CalculateAdditionalFee(_orderTotalCalculationService, cart,
+            return _paymentService.CalculateAdditionalFee(cart,
                 _payFastPaymentSettings.AdditionalFee, _payFastPaymentSettings.AdditionalFeePercentage);
-            return result;
         }
 
         /// <summary>
@@ -203,18 +201,9 @@ namespace Nop.Plugin.Payments.PayFast
             return $"{_webHelper.GetStoreLocation()}Admin/PaymentPayFast/Configure";
         }
 
-        public void GetPublicViewComponent(out string viewComponentName)
+        public string GetPublicViewComponentName()
         {
-            viewComponentName = "PaymentPayFast";
-        }
-
-        /// <summary>
-        /// Get type of the controller
-        /// </summary>
-        /// <returns>Controller type</returns>
-        public Type GetControllerType()
-        {
-            return typeof(PaymentPayFastController);
+            return "PaymentPayFast";
         }
 
         /// <summary>
@@ -229,18 +218,18 @@ namespace Nop.Plugin.Payments.PayFast
             });
 
             //locales
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.AdditionalFee", "Additional fee");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.AdditionalFee.Hint", "Enter additional fee to charge your customers.");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.AdditionalFeePercentage", "Additional fee. Use percentage");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.AdditionalFeePercentage.Hint", "Determines whether to apply a percentage additional fee to the order total. If not enabled, a fixed value is used.");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.MerchantId", "Merchant ID");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.MerchantId.Hint", "Specify merchant ID.");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.MerchantKey", "Merchant key");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.MerchantKey.Hint", "Specify merchant key.");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.UseSandbox", "Use Sandbox");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.UseSandbox.Hint", "Check to enable Sandbox (testing environment).");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.RedirectionTip", "You will be redirected to PayFast site to complete the order.");
-            this.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.PaymentMethodDescription", "You will be redirected to PayFast site to complete the order.");
+            _localizationService.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.AdditionalFee", "Additional fee");
+            _localizationService.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.AdditionalFee.Hint", "Enter additional fee to charge your customers.");
+            _localizationService.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.AdditionalFeePercentage", "Additional fee. Use percentage");
+            _localizationService.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.AdditionalFeePercentage.Hint", "Determines whether to apply a percentage additional fee to the order total. If not enabled, a fixed value is used.");
+            _localizationService.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.MerchantId", "Merchant ID");
+            _localizationService.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.MerchantId.Hint", "Specify merchant ID.");
+            _localizationService.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.MerchantKey", "Merchant key");
+            _localizationService.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.MerchantKey.Hint", "Specify merchant key.");
+            _localizationService.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.UseSandbox", "Use Sandbox");
+            _localizationService.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.Fields.UseSandbox.Hint", "Check to enable Sandbox (testing environment).");
+            _localizationService.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.RedirectionTip", "You will be redirected to PayFast site to complete the order.");
+            _localizationService.AddOrUpdatePluginLocaleResource("Plugins.Payments.PayFast.PaymentMethodDescription", "You will be redirected to PayFast site to complete the order.");
 
             base.Install();
         }
@@ -254,18 +243,18 @@ namespace Nop.Plugin.Payments.PayFast
             _settingService.DeleteSetting<PayFastPaymentSettings>();
 
             //locales
-            this.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.AdditionalFee");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.AdditionalFee.Hint");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.AdditionalFeePercentage");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.AdditionalFeePercentage.Hint");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.MerchantId");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.MerchantId.Hint");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.MerchantKey");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.MerchantKey.Hint");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.UseSandbox");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.UseSandbox.Hint");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayFast.RedirectionTip");
-            this.DeletePluginLocaleResource("Plugins.Payments.PayFast.PaymentMethodDescription");
+            _localizationService.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.AdditionalFee");
+            _localizationService.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.AdditionalFee.Hint");
+            _localizationService.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.AdditionalFeePercentage");
+            _localizationService.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.AdditionalFeePercentage.Hint");
+            _localizationService.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.MerchantId");
+            _localizationService.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.MerchantId.Hint");
+            _localizationService.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.MerchantKey");
+            _localizationService.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.MerchantKey.Hint");
+            _localizationService.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.UseSandbox");
+            _localizationService.DeletePluginLocaleResource("Plugins.Payments.PayFast.Fields.UseSandbox.Hint");
+            _localizationService.DeletePluginLocaleResource("Plugins.Payments.PayFast.RedirectionTip");
+            _localizationService.DeletePluginLocaleResource("Plugins.Payments.PayFast.PaymentMethodDescription");
 
             base.Uninstall();
         }
